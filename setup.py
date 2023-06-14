@@ -7,6 +7,7 @@ install_requires = [
     "websockets",
     "nest_asyncio",
     "httpx",
+    "httpx[socks]",
     "tqdm",
     "orjson",
     'uvloop; platform_system != "Windows"',
