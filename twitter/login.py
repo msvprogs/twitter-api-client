@@ -166,7 +166,9 @@ def login(email: str, username: str, password: str, **kwargs) -> Client:
             'x-twitter-active-user': 'yes',
             'x-twitter-client-language': 'en',
         },
-        proxies = kwargs.get('proxies'))
+        proxies = kwargs.get('proxies')),
+        follow_redirects=True
+    )
 
     # client.protonmail = kwargs.get('protonmail')
 
