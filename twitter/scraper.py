@@ -6,7 +6,7 @@ import random
 
 import aiofiles
 import websockets
-from httpx import AsyncClient, Limits, ReadTimeout, URL
+from httpx import AsyncClient, Limits, ReadTimeout, URL, Timeout
 from tqdm.asyncio import tqdm_asyncio
 
 from .constants import *
@@ -31,10 +31,12 @@ if platform.system() != 'Windows':
 
 
 class Scraper:
-    def __init__(self, email: str = None, username: str = None, password: str = None, session: Client = None, **kwargs):
+    def __init__(self, email: str = None, username: str = None, password: str = None, session: Client = None, proxies:str = None, **kwargs):
         self.guest = False
         self.logger = self._init_logger(kwargs.get('log_config', False))
         self.session = self._validate_session(email, username, password, session, **kwargs)
+        self.proxies = proxies
+        self.timeout = kwargs.get('timeout', Timeout(5.0))
         self.debug = kwargs.get('debug', 0)
         self.save = kwargs.get('save', True)
         self.pbar = kwargs.get('pbar', True)
@@ -259,7 +261,7 @@ class Scraper:
                 [urls.append([url, video]) for video in hq_videos]
 
         async def process():
-            async with AsyncClient(headers=self.session.headers, cookies=self.session.cookies) as client:
+            async with AsyncClient(headers=self.session.headers, cookies=self.session.cookies, proxies=self.proxies, timeout=self.timeout) as client:
                 tasks = (download(client, x, y) for x, y in urls)
                 if self.pbar:
                     return await tqdm_asyncio.gather(*tasks, desc='Downloading media')
@@ -300,7 +302,7 @@ class Scraper:
             offsets = utc or ["-1200", "-1100", "-1000", "-0900", "-0800", "-0700", "-0600", "-0500", "-0400", "-0300",
                               "-0200", "-0100", "+0000", "+0100", "+0200", "+0300", "+0400", "+0500", "+0600", "+0700",
                               "+0800", "+0900", "+1000", "+1100", "+1200", "+1300", "+1400"]
-            async with AsyncClient(headers=get_headers(self.session)) as client:
+            async with AsyncClient(headers=get_headers(self.session), proxies=self.proxies, timeout=self.timeout) as client:
                 tasks = (get_trends(client, o, url) for o in offsets)
                 if self.pbar:
                     return await tqdm_asyncio.gather(*tasks, desc='Getting trends')
@@ -454,7 +456,7 @@ class Scraper:
             limits = Limits(max_connections=100, max_keepalive_connections=10)
             headers = self.session.headers if self.guest else get_headers(self.session)
             cookies = self.session.cookies
-            async with AsyncClient(limits=limits, headers=headers, cookies=cookies, timeout=20) as c:
+            async with AsyncClient(limits=limits, headers=headers, cookies=cookies, proxies=self.proxies, timeout=self.timeout) as c:
                 tasks = (get(c, key) for key in keys)
                 if self.pbar:
                     return await tqdm_asyncio.gather(*tasks, desc='Downloading chat data')
@@ -471,7 +473,7 @@ class Scraper:
             limits = Limits(max_connections=100, max_keepalive_connections=10)
             headers = self.session.headers if self.guest else get_headers(self.session)
             cookies = self.session.cookies
-            async with AsyncClient(limits=limits, headers=headers, cookies=cookies, timeout=20) as c:
+            async with AsyncClient(limits=limits, headers=headers, cookies=cookies, proxies=self.proxies, timeout=self.timeout) as c:
                 tasks = []
                 for d in data:
                     tasks.extend([get(c, chunk, d['rest_id']) for chunk in d['chunks']])
@@ -502,7 +504,7 @@ class Scraper:
             limits = Limits(max_connections=100, max_keepalive_connections=10)
             headers = self.session.headers if self.guest else get_headers(self.session)
             cookies = self.session.cookies
-            async with AsyncClient(limits=limits, headers=headers, cookies=cookies, timeout=20) as c:
+            async with AsyncClient(limits=limits, headers=headers, cookies=cookies, proxies=self.proxies, timeout=self.timeout) as c:
                 return await asyncio.gather(*(get(c, key) for key in keys))
 
         return asyncio.run(process())
@@ -541,7 +543,7 @@ class Scraper:
         limits = Limits(max_connections=100, max_keepalive_connections=10)
         headers = self.session.headers if self.guest else get_headers(self.session)
         cookies = self.session.cookies
-        async with AsyncClient(limits=limits, headers=headers, cookies=cookies, timeout=20) as c:
+        async with AsyncClient(limits=limits, headers=headers, cookies=cookies, proxies=self.proxies, timeout=self.timeout) as c:
             tasks = (self._paginate(c, operation, **q, **kwargs) for q in queries)
             if self.pbar:
                 return await tqdm_asyncio.gather(*tasks, desc=operation[-1])
@@ -669,7 +671,7 @@ class Scraper:
             return r.json()
 
         limits = Limits(max_connections=100)
-        async with AsyncClient(headers=client.headers, limits=limits, timeout=30) as c:
+        async with AsyncClient(headers=client.headers, limits=limits, proxies=self.proxies, timeout=self.timeout) as c:
             tasks = (get(c, _id) for _id in spaces)
             if self.pbar:
                 return await tqdm_asyncio.gather(*tasks, desc='Getting live transcripts')
@@ -764,7 +766,7 @@ class Scraper:
         async def process(spaces: list[dict]):
             limits = Limits(max_connections=100)
             headers, cookies = self.session.headers, self.session.cookies
-            async with AsyncClient(limits=limits, headers=headers, cookies=cookies, timeout=20) as c:
+            async with AsyncClient(limits=limits, headers=headers, cookies=cookies, proxies=self.proxies, timeout=self.timeout) as c:
                 return await asyncio.gather(*(poll_space(c, space) for space in spaces))
 
         spaces = self.spaces(rooms=rooms)
@@ -781,9 +783,9 @@ class Scraper:
         logger_name = list(LOGGER_CONFIG['loggers'].keys())[0]
 
         # set level of all other loggers to ERROR
-        for name in logging.root.manager.loggerDict:
-            if name != logger_name:
-                logging.getLogger(name).setLevel(logging.ERROR)
+        #for name in logging.root.manager.loggerDict:
+        #    if name != logger_name:
+        #        logging.getLogger(name).setLevel(logging.ERROR)
 
         return logging.getLogger(logger_name)
 

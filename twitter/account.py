@@ -567,9 +567,9 @@ class Account:
         logger_name = list(LOGGER_CONFIG['loggers'].keys())[0]
 
         # set level of all other loggers to ERROR
-        for name in logging.root.manager.loggerDict:
-            if name != logger_name:
-                logging.getLogger(name).setLevel(logging.ERROR)
+        #for name in logging.root.manager.loggerDict:
+        #    if name != logger_name:
+        #        logging.getLogger(name).setLevel(logging.ERROR)
 
         return logging.getLogger(logger_name)
 

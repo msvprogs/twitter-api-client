@@ -1,6 +1,6 @@
 import sys
 
-from httpx import Client
+from httpx import Client, Timeout
 
 from .constants import GREEN, YELLOW, RED, BOLD, RESET
 from .util import find_key  # ,get_confirmation_code, get_inbox, init_protonmail_session
@@ -166,7 +166,8 @@ def login(email: str, username: str, password: str, **kwargs) -> Client:
             'x-twitter-active-user': 'yes',
             'x-twitter-client-language': 'en',
         },
-        proxies = kwargs.get('proxies'))
+        proxies = kwargs.get('proxies'),
+        timeout = kwargs.get('timeout', Timeout(5.0)))
 
     # client.protonmail = kwargs.get('protonmail')
 

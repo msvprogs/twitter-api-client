@@ -8,7 +8,7 @@ from logging import Logger
 from pathlib import Path
 
 import orjson
-from httpx import AsyncClient, Client
+from httpx import AsyncClient, Client, Timeout
 
 from .constants import *
 from .login import login
@@ -35,9 +35,11 @@ if platform.system() != 'Windows':
 
 
 class Search:
-    def __init__(self, email: str = None, username: str = None, password: str = None, session: Client = None, **kwargs):
+    def __init__(self, email: str = None, username: str = None, password: str = None, session: Client = None, proxies:str=None, **kwargs):
         self.logger = self._init_logger(kwargs.get('log_config', False))
         self.session = self._validate_session(email, username, password, session, **kwargs)
+        self.proxies = proxies;
+        self.timeout = kwargs.get('timeout', Timeout(5.0))
         self.api = 'https://api.twitter.com/2/search/adaptive.json?'
         self.save = kwargs.get('save', True)
         self.debug = kwargs.get('debug', 0)
@@ -49,10 +51,14 @@ class Search:
         return asyncio.run(self.process(args, search_config, out_path, **kwargs))
 
     async def process(self, queries: tuple, config: dict, out: Path, **kwargs) -> list:
-        async with AsyncClient(headers=get_headers(self.session)) as s:
+        async with AsyncClient(headers=get_headers(self.session), proxies=self.proxies, timeout=self.timeout) as s:
             return await asyncio.gather(*(self.paginate(q, s, config, out, **kwargs) for q in queries))
 
     async def paginate(self, query: str, session: AsyncClient, config: dict, out: Path, **kwargs) -> list[dict]:
+        limit = kwargs.get('limit')
+        if (limit is not None):
+            config['count'] = max(limit, 100)
+
         config['q'] = query
         data, next_cursor = await self.backoff(lambda: self.get(session, config), query, **kwargs)
         all_data = [data]
@@ -60,7 +66,7 @@ class Search:
         ids = set()
         while next_cursor:
             ids |= set(data['globalObjects']['tweets'])
-            if len(ids) >= kwargs.get('limit', math.inf):
+            if limit is not None and len(ids) >= limit:
                 if self.debug:
                     self.logger.debug(
                         f'[{GREEN}success{RESET}] Returned {len(ids)} search results for {c}{query}{reset}')
@@ -145,9 +151,9 @@ class Search:
         logger_name = list(LOGGER_CONFIG['loggers'].keys())[0]
 
         # set level of all other loggers to ERROR
-        for name in logging.root.manager.loggerDict:
-            if name != logger_name:
-                logging.getLogger(name).setLevel(logging.ERROR)
+        #for name in logging.root.manager.loggerDict:
+        #    if name != logger_name:
+        #        logging.getLogger(name).setLevel(logging.ERROR)
 
         return logging.getLogger(logger_name)
 
