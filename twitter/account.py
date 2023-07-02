@@ -4,7 +4,6 @@ import logging.config
 import math
 import mimetypes
 import platform
-import random
 from copy import deepcopy
 from datetime import datetime
 from string import ascii_letters
@@ -38,12 +37,13 @@ if platform.system() != 'Windows':
 class Account:
 
     def __init__(self, email: str = None, username: str = None, password: str = None, session: Client = None, **kwargs):
-        self.logger = self._init_logger(kwargs.get('log_config', False))
-        self.session = self._validate_session(email, username, password, session, **kwargs)
         self.save = kwargs.get('save', True)
         self.debug = kwargs.get('debug', 0)
         self.gql_api = 'https://twitter.com/i/api/graphql'
         self.v1_api = 'https://api.twitter.com/1.1'
+        self.v2_api = 'https://twitter.com/i/api/2'
+        self.logger = self._init_logger(**kwargs)
+        self.session = self._validate_session(email, username, password, session, **kwargs)
 
     def gql(self, method: str, operation: tuple, variables: dict, features: dict = Operation.default_features) -> dict:
         qid, op = operation
@@ -353,13 +353,13 @@ class Account:
     def unmute(self, user_id: int) -> dict:
         return self.v1('mutes/users/destroy.json', {'user_id': user_id})
 
-    def enable_notifications(self, user_id: int) -> dict:
-        settings = deepcopy(notification_settings)
+    def enable_follower_notifications(self, user_id: int) -> dict:
+        settings = deepcopy(follower_notification_settings)
         settings |= {'id': user_id, 'device': 'true'}
         return self.v1('friendships/update.json', settings)
 
-    def disable_notifications(self, user_id: int) -> dict:
-        settings = deepcopy(notification_settings)
+    def disable_follower_notifications(self, user_id: int) -> dict:
+        settings = deepcopy(follower_notification_settings)
         settings |= {'id': user_id, 'device': 'false'}
         return self.v1('friendships/update.json', settings)
 
@@ -592,22 +592,20 @@ class Account:
         r = self.session.post(url, headers=get_headers(self.session), json=params)
         return r
 
-    @staticmethod
-    def _init_logger(cfg: dict) -> Logger:
-        if cfg:
-            logging.config.dictConfig(cfg)
-        else:
-            logging.config.dictConfig(LOGGER_CONFIG)
+    def _init_logger(self, **kwargs) -> Logger:
+        if kwargs.get('debug'):
+            cfg = kwargs.get('log_config')
+            logging.config.dictConfig(cfg or LOG_CONFIG)
 
-        # only support one logger
-        logger_name = list(LOGGER_CONFIG['loggers'].keys())[0]
+            # only support one logger
+            logger_name = list(LOG_CONFIG['loggers'].keys())[0]
 
-        # set level of all other loggers to ERROR
-        #for name in logging.root.manager.loggerDict:
-        #    if name != logger_name:
-        #        logging.getLogger(name).setLevel(logging.ERROR)
+			# set level of all other loggers to ERROR
+			#for name in logging.root.manager.loggerDict:
+			#    if name != logger_name:
+			#        logging.getLogger(name).setLevel(logging.ERROR)
 
-        return logging.getLogger(logger_name)
+            return logging.getLogger(logger_name)
 
     @staticmethod
     def _validate_session(*args, **kwargs):
@@ -615,10 +613,13 @@ class Account:
 
         # validate credentials
         if all((email, username, password)):
-            return login(email, username, password, **kwargs)
+            session = login(email, username, password, **kwargs)
+            session._init_with_cookies = False
+            return session
 
         # invalid credentials, try validating session
         if session and all(session.cookies.get(c) for c in {'ct0', 'auth_token'}):
+            session._init_with_cookies = True
             return session
 
         # invalid credentials and session
@@ -627,12 +628,14 @@ class Account:
         # try validating cookies dict
         if isinstance(cookies, dict) and all(cookies.get(c) for c in {'ct0', 'auth_token'}):
             _session = Client(cookies=cookies, follow_redirects=True)
+            _session._init_with_cookies = True
             _session.headers.update(get_headers(_session))
             return _session
 
         # try validating cookies from file
         if isinstance(cookies, str):
             _session = Client(cookies=orjson.loads(Path(cookies).read_bytes()), follow_redirects=True)
+            _session._init_with_cookies = True
             _session.headers.update(get_headers(_session))
             return _session
 
@@ -785,3 +788,43 @@ class Account:
         for _id in set(find_key(drafts, 'rest_id')):
             if _id != user_id:
                 self.gql('POST', Operation.DeleteDraftTweet, {'draft_tweet_id': _id})
+
+    def notifications(self, params: dict = None) -> dict:
+        r = self.session.get(
+            f'{self.v2_api}/notifications/all.json',
+            headers=get_headers(self.session),
+            params=params or live_notification_params
+        )
+        if self.debug:
+            log(self.logger, self.debug, r)
+        return r.json()
+
+    def recommendations(self, params: dict = None) -> dict:
+        r = self.session.get(
+            f'{self.v1_api}/users/recommendations.json',
+            headers=get_headers(self.session),
+            params=params or recommendations_params
+        )
+        if self.debug:
+            log(self.logger, self.debug, r)
+        return r.json()
+
+    def fleetline(self, params: dict = None) -> dict:
+        r = self.session.get(
+            'https://twitter.com/i/api/fleets/v1/fleetline',
+            headers=get_headers(self.session),
+            params=params or {}
+        )
+        if self.debug:
+            log(self.logger, self.debug, r)
+        return r.json()
+
+    @property
+    def id(self) -> int:
+        """ Get User ID """
+        return int(re.findall('"u=(\d+)"', self.session.cookies.get('twid'))[0])
+
+    def save_cookies(self, fname: str = None):
+        """ Save cookies to file """
+        cookies = self.session.cookies
+        Path(f'{fname or cookies.get("username")}.cookies').write_bytes(orjson.dumps(dict(cookies)))

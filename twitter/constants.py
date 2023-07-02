@@ -19,7 +19,7 @@ WHITE = '\x1b[37m'
 BOLD = '\x1b[1m'
 RESET = '\x1b[0m'
 
-LOGGER_CONFIG = {
+LOG_CONFIG = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
@@ -66,6 +66,15 @@ ID_MAP = {
 
 
 @dataclass
+class SearchCategory:
+    Top = 'Top'
+    Latest = 'Latest'
+    People = 'People'
+    Photos = 'Photos'
+    Videos = 'Videos'
+
+
+@dataclass
 class SpaceCategory:
     Top = 'Top'
     Live = 'Live'
@@ -85,6 +94,7 @@ class SpaceState:
 @dataclass
 class Operation:
     # todo: dynamically update
+    SearchTimeline = {'rawQuery': str, 'product': str}, 'nK1dw4oV3k4w5TdtcAdSww', 'SearchTimeline'
     AudioSpaceById = {'id': str}, 'fYAuJHiY3TmYdBmrRtIKhA', 'AudioSpaceById'
     AudioSpaceSearch = {'filter': str, 'query': str}, 'NTq79TuSz6fHj8lQaferJw', 'AudioSpaceSearch',
     UserByScreenName = {'screen_name': str}, 'sLVLhk0bGj3MVFEKTdax1w', 'UserByScreenName'
@@ -272,7 +282,6 @@ class Operation:
     RitoFlaggedAccountsTimeline = 'lMzaBZHIbD6GuPqJJQubMg', 'RitoFlaggedAccountsTimeline'
     RitoFlaggedTweetsTimeline = 'iCuXMibh6yj9AelyjKXDeA', 'RitoFlaggedTweetsTimeline'
     RitoSuggestedActionsFacePile = 'GnQKeEdL1LyeK3dTQCS1yw', 'RitoSuggestedActionsFacePile'
-    SearchTimeline = 'gkjsKepM6gl_HmFWoWKfgg', 'SearchTimeline'
     SetDefault = 'QEMLEzEMzoPNbeauKCCLbg', 'SetDefault'
     SetSafetyModeSettings = 'qSJIPIpf4gA7Wn21bT3D4w', 'SetSafetyModeSettings'
     SharingAudiospacesListeningDataWithFollowersUpdate = '5h0kNbk3ii97rmfY6CdgAA', 'SharingAudiospacesListeningDataWithFollowersUpdate'
@@ -351,40 +360,42 @@ class Operation:
         'withMessages': True,
     }
     default_features = {
-        "blue_business_profile_image_shape_enabled": True,
-        "creator_subscriptions_tweet_preview_api_enabled": True,
-        "freedom_of_speech_not_reach_fetch_enabled": False,
-        "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
-        "graphql_timeline_v2_bookmark_timeline": True,
-        "hidden_profile_likes_enabled": True,
-        "highlights_tweets_tab_ui_enabled": True,
-        "interactive_text_enabled": True,
-        "longform_notetweets_consumption_enabled": True,
-        "longform_notetweets_inline_media_enabled": False,
-        "longform_notetweets_rich_text_read_enabled": True,
-        "longform_notetweets_richtext_consumption_enabled": True,
-        "profile_foundations_tweet_stats_enabled": True,
-        "profile_foundations_tweet_stats_tweet_frequency": True,
-        "responsive_web_birdwatch_note_limit_enabled": True,
-        "responsive_web_edit_tweet_api_enabled": True,
-        "responsive_web_enhance_cards_enabled": False,
-        "responsive_web_graphql_exclude_directive_enabled": True,
-        "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
-        "responsive_web_graphql_timeline_navigation_enabled": True,
-        "responsive_web_text_conversations_enabled": False,
-        "responsive_web_twitter_article_data_v2_enabled": True,
-        "responsive_web_twitter_blue_verified_badge_is_enabled": True,
-        "rweb_lists_timeline_redesign_enabled": True,
-        "spaces_2022_h2_clipping": True,
-        "spaces_2022_h2_spaces_communities": True,
-        "standardized_nudges_misinfo": True,
-        "subscriptions_verification_info_verified_since_enabled": True,
-        "tweet_awards_web_tipping_enabled": False,
-        "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": False,
-        "tweetypie_unmention_optimization_enabled": True,
-        "verified_phone_label_enabled": False,
-        "vibe_api_enabled": True,
-        "view_counts_everywhere_api_enabled": True,
+        'blue_business_profile_image_shape_enabled': True,
+        'creator_subscriptions_tweet_preview_api_enabled': True,
+        'freedom_of_speech_not_reach_fetch_enabled': True,
+        'graphql_is_translatable_rweb_tweet_is_translatable_enabled': True,
+        'graphql_timeline_v2_bookmark_timeline': True,
+        'hidden_profile_likes_enabled': True,
+        'highlights_tweets_tab_ui_enabled': True,
+        'interactive_text_enabled': True,
+        'longform_notetweets_consumption_enabled': True,
+        'longform_notetweets_inline_media_enabled': True,
+        'longform_notetweets_rich_text_read_enabled': True,
+        'longform_notetweets_richtext_consumption_enabled': True,
+        'profile_foundations_tweet_stats_enabled': True,
+        'profile_foundations_tweet_stats_tweet_frequency': True,
+        'responsive_web_birdwatch_note_limit_enabled': True,
+        'responsive_web_edit_tweet_api_enabled': True,
+        'responsive_web_enhance_cards_enabled': False,
+        'responsive_web_graphql_exclude_directive_enabled': True,
+        'responsive_web_graphql_skip_user_profile_image_extensions_enabled': False,
+        'responsive_web_graphql_timeline_navigation_enabled': True,
+        'responsive_web_media_download_video_enabled': False,
+        'responsive_web_text_conversations_enabled': False,
+        'responsive_web_twitter_article_data_v2_enabled': True,
+        'responsive_web_twitter_article_tweet_consumption_enabled': False,
+        'responsive_web_twitter_blue_verified_badge_is_enabled': True,
+        'rweb_lists_timeline_redesign_enabled': True,
+        'spaces_2022_h2_clipping': True,
+        'spaces_2022_h2_spaces_communities': True,
+        'standardized_nudges_misinfo': True,
+        'subscriptions_verification_info_verified_since_enabled': True,
+        'tweet_awards_web_tipping_enabled': False,
+        'tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled': True,
+        'tweetypie_unmention_optimization_enabled': True,
+        'verified_phone_label_enabled': False,
+        'vibe_api_enabled': True,
+        'view_counts_everywhere_api_enabled': True
     }
 
 
@@ -473,7 +484,7 @@ account_settings = {
     # 'allow_contributor_request': 'all',
     # 'protect_password_reset': False,
 }
-notification_settings = {
+follower_notification_settings = {
     'cursor': '-1',
     'include_profile_interstitial_type': '1',
     'include_blocking': '1',
@@ -594,4 +605,58 @@ dm_params = {
     'supports_reactions': 'true',
     'include_conversation_info': 'true',
     'ext': 'mediaColor,altText,mediaStats,highlightedLabel,hasNftAvatar,voiceInfo,birdwatchPivot,superFollowMetadata,unmentionInfo,editControl',
+}
+
+live_notification_params = params = {
+    "cards_platform": "Web-12",
+    "count": "50",  # max value
+    "ext": "mediaStats,highlightedLabel,hasNftAvatar,voiceInfo,birdwatchPivot,superFollowMetadata,unmentionInfo,editControl",
+    "include_blocked_by": "1",
+    "include_blocking": "1",
+    "include_can_dm": "1",
+    "include_can_media_tag": "1",
+    "include_cards": "1",
+    "include_entities": "true",
+    "include_ext_alt_text": "true",
+    "include_ext_has_nft_avatar": "1",
+    "include_ext_is_blue_verified": "1",
+    "include_ext_limited_action_results": "true",
+    "include_ext_media_availability": "true",
+    "include_ext_media_color": "true",
+    "include_ext_profile_image_shape": "1",
+    "include_ext_sensitive_media_warning": "true",
+    "include_ext_trusted_friends_metadata": "true",
+    "include_ext_verified_type": "1",
+    "include_ext_views": "true",
+    "include_followed_by": "1",
+    "include_mute_edge": "1",
+    "include_profile_interstitial_type": "1",
+    "include_quote_count": "true",
+    "include_reply_count": "1",
+    "include_user_entities": "true",
+    "include_want_retweets": "1",
+    "send_error_codes": "true",
+    "simple_quoted_tweet": "true",
+    "skip_status": "1",
+    "tweet_mode": "extended"
+}
+
+recommendations_params = {
+    'include_profile_interstitial_type': '1',
+    'include_blocking': '1',
+    'include_blocked_by': '1',
+    'include_followed_by': '1',
+    'include_want_retweets': '1',
+    'include_mute_edge': '1',
+    'include_can_dm': '1',
+    'include_can_media_tag': '1',
+    'include_ext_has_nft_avatar': '1',
+    'include_ext_is_blue_verified': '1',
+    'include_ext_verified_type': '1',
+    'include_ext_profile_image_shape': '1',
+    'skip_status': '1',
+    'pc': 'true',
+    'display_location': 'profile_accounts_sidebar',
+    'limit': 100,
+    'ext': 'mediaStats,highlightedLabel,hasNftAvatar,voiceInfo,birdwatchPivot,superFollowMetadata,unmentionInfo,editControl'
 }

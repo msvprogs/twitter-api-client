@@ -3,6 +3,7 @@ import logging.config
 import math
 import platform
 import random
+import re
 import time
 from logging import Logger
 from pathlib import Path
@@ -12,7 +13,7 @@ from httpx import AsyncClient, Client, Timeout
 
 from .constants import *
 from .login import login
-from .util import set_qs, get_headers, find_key
+from .util import get_headers, find_key, build_params
 
 reset = '\u001b[0m'
 colors = [f'\u001b[{i}m' for i in range(30, 38)]
@@ -36,126 +37,99 @@ if platform.system() != 'Windows':
 
 class Search:
     def __init__(self, email: str = None, username: str = None, password: str = None, session: Client = None, proxies:str=None, **kwargs):
-        self.logger = self._init_logger(kwargs.get('log_config', False))
-        self.session = self._validate_session(email, username, password, session, **kwargs)
-        self.proxies = proxies;
-        self.timeout = kwargs.get('timeout', Timeout(5.0))
-        self.api = 'https://api.twitter.com/2/search/adaptive.json?'
         self.save = kwargs.get('save', True)
         self.debug = kwargs.get('debug', 0)
+        self.logger = self._init_logger(**kwargs)
+        self.session = self._validate_session(email, username, password, session, **kwargs)
+		self.proxies = proxies;
+        self.timeout = kwargs.get('timeout', Timeout(5.0))
 
-    def run(self, *args, out: str = 'data', **kwargs):
-        out_path = self.make_output_dirs(out)
-        if kwargs.get('latest', False):
-            search_config['tweet_search_mode'] = 'live'
-        return asyncio.run(self.process(args, search_config, out_path, **kwargs))
+    def run(self, queries: list[dict], limit: int = math.inf, **kwargs):
+        out = Path('data/search_results')
+        out.mkdir(parents=True, exist_ok=True)
+        return asyncio.run(self.process(queries, limit, out, **kwargs))
 
-    async def process(self, queries: tuple, config: dict, out: Path, **kwargs) -> list:
+    async def process(self, queries: list[dict], limit: int, out: Path, **kwargs) -> list:
         async with AsyncClient(headers=get_headers(self.session), proxies=self.proxies, timeout=self.timeout) as s:
-            return await asyncio.gather(*(self.paginate(q, s, config, out, **kwargs) for q in queries))
+            return await asyncio.gather(*(self.paginate(s, q, limit, out, **kwargs) for q in queries))
 
-    async def paginate(self, query: str, session: AsyncClient, config: dict, out: Path, **kwargs) -> list[dict]:
-        limit = kwargs.get('limit')
-        if (limit is not None):
-            config['count'] = max(limit, 100)
+    async def paginate(self, client: AsyncClient, query: dict, limit: int, out: Path, **kwargs) -> list[dict]:
+        params = {
+            'variables': {
+                'count': 20,
+                'querySource': 'typed_query',
+                'rawQuery': query['query'],
+                'product': query['category']
+            },
+            'features': Operation.default_features,
+            'fieldToggles': {'withArticleRichContentState': False},
+        }
 
-        config['q'] = query
-        data, next_cursor = await self.backoff(lambda: self.get(session, config), query, **kwargs)
-        all_data = [data]
-        c = colors.pop() if colors else ''
-        ids = set()
-        while next_cursor:
-            ids |= set(data['globalObjects']['tweets'])
-            if limit is not None and len(ids) >= limit:
-                if self.debug:
-                    self.logger.debug(
-                        f'[{GREEN}success{RESET}] Returned {len(ids)} search results for {c}{query}{reset}')
-                return all_data
-            if self.debug:
-                self.logger.debug(f'{c}{query}{reset}')
-            config['cursor'] = next_cursor
+        res = []
+        cursor = ''
+        total = set()
+        while True:
+            if cursor:
+                params['variables']['cursor'] = cursor
+            data, entries, cursor = await self.backoff(lambda: self.get(client, params), **kwargs)
+            res.extend(entries)
+            if len(entries) <= 2 or len(total) >= limit:  # just cursors
+                self.debug and self.logger.debug(f'[{GREEN}success{RESET}] Returned {len(total)} search results for {query["query"]}')
+                return res
+            total |= set(find_key(entries, 'entryId'))
+            self.debug and self.logger.debug(f'{query["query"]}')
+            self.save and (out / f'{time.time_ns()}.json').write_bytes(orjson.dumps(entries))
 
-            data, next_cursor = await self.backoff(lambda: self.get(session, config), query, **kwargs)
-            if not data:
-                return all_data
+    async def get(self, client: AsyncClient, params: dict) -> tuple:
+        _, qid, name = Operation.SearchTimeline
+        r = await client.get(f'https://twitter.com/i/api/graphql/{qid}/{name}', params=build_params(params))
+        data = r.json()
+        cursor = self.get_cursor(data)
+        entries = [y for x in find_key(data, 'entries') for y in x if re.search(r'^(tweet|user)-', y['entryId'])]
+        # add on query info
+        for e in entries:
+            e['query'] = params['variables']['rawQuery']
+        return data, entries, cursor
 
-            data['query'] = query
+    def get_cursor(self, data: list[dict]):
+        for e in find_key(data, 'content'):
+            if e.get('cursorType') == 'Bottom':
+                return e['value']
 
-            if self.save:
-                (out / f'raw/{time.time_ns()}.json').write_text(
-                    orjson.dumps(data, option=orjson.OPT_INDENT_2).decode(),
-                    encoding='utf-8'
-                )
-            all_data.append(data)
-        return all_data
-
-    async def backoff(self, fn, info, **kwargs):
+    async def backoff(self, fn, **kwargs):
         retries = kwargs.get('retries', 3)
         for i in range(retries + 1):
             try:
-                data, next_cursor = await fn()
-                if not data.get('globalObjects', {}).get('tweets'):
-                    raise Exception
-                return data, next_cursor
+                data, entries, cursor = await fn()
+                if errors := data.get('errors'):
+                    for e in errors:
+                        self.logger.warning(f'{YELLOW}{e.get("message")}{RESET}')
+                        return [], [], ''
+                ids = set(find_key(data, 'entryId'))
+                if len(ids) >= 2:
+                    return data, entries, cursor
             except Exception as e:
                 if i == retries:
-                    if self.debug:
-                        self.logger.debug(f'Max retries exceeded\n{e}')
-                    return None, None
+                    self.logger.debug(f'Max retries exceeded\n{e}')
+                    return
                 t = 2 ** i + random.random()
-                if self.debug:
-                    self.logger.debug(
-                        f'No data for: {BOLD}{info}{RESET}, retrying in {f"{t:.2f}"} seconds\t\t{e}')
-                time.sleep(t)
+                self.logger.debug(f'Retrying in {f"{t:.2f}"} seconds\t\t{e}')
+                await asyncio.sleep(t)
 
-    async def get(self, session: AsyncClient, params: dict) -> tuple:
-        url = set_qs(self.api, params, update=True, safe='()')
-        r = await session.get(url)
-        data = r.json()
-        next_cursor = self.get_cursor(data)
-        return data, next_cursor
+    def _init_logger(self, **kwargs) -> Logger:
+        if kwargs.get('debug'):
+            cfg = kwargs.get('log_config')
+            logging.config.dictConfig(cfg or LOG_CONFIG)
 
-    def get_cursor(self, res: dict):
-        try:
-            if live := find_key(res, 'value'):
-                if cursor := [x for x in live if 'scroll' in x]:
-                    return cursor[0]
-            for instr in res['timeline']['instructions']:
-                if replaceEntry := instr.get('replaceEntry'):
-                    cursor = replaceEntry['entry']['content']['operation']['cursor']
-                    if cursor['cursorType'] == 'Bottom':
-                        return cursor['value']
-                    continue
-                for entry in instr['addEntries']['entries']:
-                    if entry['entryId'] == 'cursor-bottom-0':
-                        return entry['content']['operation']['cursor']['value']
-        except Exception as e:
-            if self.debug:
-                self.logger.debug(e)
+            # only support one logger
+            logger_name = list(LOG_CONFIG['loggers'].keys())[0]
 
-    def make_output_dirs(self, path: str) -> Path:
-        p = Path(f'{path}')
-        (p / 'raw').mkdir(parents=True, exist_ok=True)
-        (p / 'processed').mkdir(parents=True, exist_ok=True)
-        (p / 'final').mkdir(parents=True, exist_ok=True)
-        return p
+            # set level of all other loggers to ERROR
+            # for name in logging.root.manager.loggerDict:
+            #    if name != logger_name:
+            #        logging.getLogger(name).setLevel(logging.ERROR)
 
-    @staticmethod
-    def _init_logger(cfg: dict) -> Logger:
-        if cfg:
-            logging.config.dictConfig(cfg)
-        else:
-            logging.config.dictConfig(LOGGER_CONFIG)
-
-        # only support one logger
-        logger_name = list(LOGGER_CONFIG['loggers'].keys())[0]
-
-        # set level of all other loggers to ERROR
-        #for name in logging.root.manager.loggerDict:
-        #    if name != logger_name:
-        #        logging.getLogger(name).setLevel(logging.ERROR)
-
-        return logging.getLogger(logger_name)
+            return logging.getLogger(logger_name)
 
     @staticmethod
     def _validate_session(*args, **kwargs):
@@ -186,3 +160,13 @@ class Search:
 
         raise Exception('Session not authenticated. '
                         'Please use an authenticated session or remove the `session` argument and try again.')
+
+    @property
+    def id(self) -> int:
+        """ Get User ID """
+        return int(re.findall('"u=(\d+)"', self.session.cookies.get('twid'))[0])
+
+    def save_cookies(self, fname: str = None):
+        """ Save cookies to file """
+        cookies = self.session.cookies
+        Path(f'{fname or cookies.get("username")}.cookies').write_bytes(orjson.dumps(dict(cookies)))

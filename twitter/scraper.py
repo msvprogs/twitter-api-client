@@ -2,7 +2,6 @@ import asyncio
 import logging.config
 import math
 import platform
-import random
 
 import aiofiles
 import websockets
@@ -32,15 +31,15 @@ if platform.system() != 'Windows':
 
 class Scraper:
     def __init__(self, email: str = None, username: str = None, password: str = None, session: Client = None, proxies:str = None, **kwargs):
-        self.guest = False
-        self.logger = self._init_logger(kwargs.get('log_config', False))
-        self.session = self._validate_session(email, username, password, session, **kwargs)
         self.proxies = proxies
         self.timeout = kwargs.get('timeout', Timeout(5.0))
-        self.debug = kwargs.get('debug', 0)
         self.save = kwargs.get('save', True)
+        self.debug = kwargs.get('debug', 0)
         self.pbar = kwargs.get('pbar', True)
         self.out_path = Path('data')
+        self.guest = False
+        self.logger = self._init_logger(**kwargs)
+        self.session = self._validate_session(email, username, password, session, **kwargs)
 
     def users(self, screen_names: list[str], **kwargs) -> list[dict]:
         """
@@ -772,22 +771,20 @@ class Scraper:
         spaces = self.spaces(rooms=rooms)
         return asyncio.run(process(spaces))
 
-    @staticmethod
-    def _init_logger(cfg: dict) -> Logger:
-        if cfg:
-            logging.config.dictConfig(cfg)
-        else:
-            logging.config.dictConfig(LOGGER_CONFIG)
+    def _init_logger(self, **kwargs) -> Logger:
+        if kwargs.get('debug'):
+            cfg = kwargs.get('log_config')
+            logging.config.dictConfig(cfg or LOG_CONFIG)
 
-        # only support one logger
-        logger_name = list(LOGGER_CONFIG['loggers'].keys())[0]
+            # only support one logger
+            logger_name = list(LOG_CONFIG['loggers'].keys())[0]
 
-        # set level of all other loggers to ERROR
-        #for name in logging.root.manager.loggerDict:
-        #    if name != logger_name:
-        #        logging.getLogger(name).setLevel(logging.ERROR)
+			# set level of all other loggers to ERROR
+			#for name in logging.root.manager.loggerDict:
+			#    if name != logger_name:
+			#        logging.getLogger(name).setLevel(logging.ERROR)
 
-        return logging.getLogger(logger_name)
+            return logging.getLogger(logger_name)
 
     def _validate_session(self, *args, **kwargs):
         email, username, password, session = args
@@ -816,6 +813,17 @@ class Scraper:
             return _session
 
         # no session, credentials, or cookies provided. use guest session.
-        self.logger.warning(f'{RED}This is a guest session, some endpoints cannot be accessed.{RESET}\n')
+        if self.debug:
+            self.logger.warning(f'{RED}This is a guest session, some endpoints cannot be accessed.{RESET}\n')
         self.guest = True
         return session
+
+    @property
+    def id(self) -> int:
+        """ Get User ID """
+        return int(re.findall('"u=(\d+)"', self.session.cookies.get('twid'))[0])
+
+    def save_cookies(self, fname: str = None):
+        """ Save cookies to file """
+        cookies = self.session.cookies
+        Path(f'{fname or cookies.get("username")}.cookies').write_bytes(orjson.dumps(dict(cookies)))
